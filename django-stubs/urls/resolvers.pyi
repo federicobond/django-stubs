@@ -1,3 +1,4 @@
+from types import ModuleType
 from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 from django.urls.converters import UUIDConverter
@@ -79,8 +80,8 @@ class URLPattern:
     def resolve(self, path: str) -> Optional[ResolverMatch]: ...
 
 class URLResolver:
-    url_patterns: List[Tuple[str, Callable]]
-    urlconf_module: Optional[List[Tuple[str, Callable]]]
+    url_patterns: List[Union[URLPattern, URLResolver]]
+    urlconf_module: Union[ModuleType, List[Union[URLPattern, URLResolver]]]
     pattern: Any = ...
     urlconf_name: Optional[str] = ...
     callback: None = ...
