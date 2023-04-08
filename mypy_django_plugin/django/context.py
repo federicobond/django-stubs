@@ -1,12 +1,11 @@
 import os
-import sys
 from collections import defaultdict
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, Optional, Sequence, Set, Tuple, Type, Union
 
 from django.core.exceptions import FieldError
 from django.db import models
-from django.db.models.base import Model
+from django.db.models.base import Model as DjangoModel
 from django.db.models.expressions import Expression
 from django.db.models.fields import AutoField, CharField, Field
 from django.db.models.fields.related import ForeignKey, RelatedField
@@ -54,13 +53,10 @@ def initialize_django(settings_module: str) -> Tuple["Apps", "LazySettings"]:
     with temp_environ():
         os.environ["DJANGO_SETTINGS_MODULE"] = settings_module
 
-        # add current directory to sys.path
-        sys.path.append(os.getcwd())
-
         from django.apps import apps
         from django.conf import settings
 
-        apps.get_models.cache_clear()  # type: ignore
+        apps.get_models.cache_clear()
         apps.get_swappable_settings_name.cache_clear()  # type: ignore
 
         if not settings.configured:
@@ -78,6 +74,28 @@ class LookupsAreUnsupported(Exception):
     pass
 
 
+class Model:
+    def __init__(self, model_cls: Type[DjangoModel]) -> None:
+        self.model_cls = model_cls
+        self.name = model_cls.__name__
+        self.fullname = model_cls.__module__ + "." + model_cls.__qualname__
+        self.auto_field = model_cls._meta.auto_field
+        self.pk = model_cls._meta.pk
+        self.abstract = model_cls._meta.abstract
+        self.related_objects = model_cls._meta.related_objects
+        self.proxy_for_model = model_cls._meta.proxy_for_model
+        self.managers_map = model_cls._meta.managers_map
+        self.default_manager = model_cls._meta.default_manager
+
+    def get_fields(self):
+        for field in self.model_cls._meta.get_fields():
+            if isinstance(field, Field):
+                yield field
+
+    def get_field(self, name: str):
+        return self.model_cls._meta.get_field(name)
+
+
 class DjangoContext:
     def __init__(self, django_settings_module: str) -> None:
         self.django_settings_module = django_settings_module
@@ -91,11 +109,11 @@ class DjangoContext:
         """All modules that contain Django models."""
         modules: Dict[str, Set[Type[Model]]] = defaultdict(set)
         for concrete_model_cls in self.apps_registry.get_models():
-            modules[concrete_model_cls.__module__].add(concrete_model_cls)
+            modules[concrete_model_cls.__module__].add(Model(concrete_model_cls))
             # collect abstract=True models
             for model_cls in concrete_model_cls.mro()[1:]:
                 if issubclass(model_cls, Model) and hasattr(model_cls, "_meta") and model_cls._meta.abstract:
-                    modules[model_cls.__module__].add(model_cls)
+                    modules[model_cls.__module__].add(Model(model_cls))
         return modules
 
     def get_model_class_by_fullname(self, fullname: str) -> Optional[Type[Model]]:
@@ -111,17 +129,15 @@ class DjangoContext:
 
         module, _, model_cls_name = fullname.rpartition(".")
         for model_cls in self.model_modules.get(module, set()):
-            if model_cls.__name__ == model_cls_name:
+            if model_cls.name == model_cls_name:
                 return model_cls
         return None
 
     def get_model_fields(self, model_cls: Type[Model]) -> Iterator["Field[Any, Any]"]:
-        for field in model_cls._meta.get_fields():
-            if isinstance(field, Field):
-                yield field
+        return model_cls.get_fields()
 
     def get_model_relations(self, model_cls: Type[Model]) -> Iterator[ForeignObjectRel]:
-        for field in model_cls._meta.get_fields():
+        for field in model_cls.get_fields():
             if isinstance(field, ForeignObjectRel):
                 yield field
 
@@ -152,7 +168,7 @@ class DjangoContext:
         assert len(field.to_fields) == 1
         to_field_name = field.to_fields[0]
         if to_field_name:
-            rel_field = related_model_cls._meta.get_field(to_field_name)
+            rel_field = related_model_cls.get_field(to_field_name)
             if not isinstance(rel_field, Field):
                 return None  # Not supported
             return rel_field
@@ -160,7 +176,7 @@ class DjangoContext:
             return self.get_primary_key_field(related_model_cls)
 
     def get_primary_key_field(self, model_cls: Type[Model]) -> "Field[Any, Any]":
-        for field in model_cls._meta.get_fields():
+        for field in model_cls.get_fields():
             if isinstance(field, Field):
                 if field.primary_key:
                     return field
@@ -173,7 +189,7 @@ class DjangoContext:
 
         expected_types = {}
         # add pk if not abstract=True
-        if not model_cls._meta.abstract:
+        if not model_cls.abstract:
             primary_key_field = self.get_primary_key_field(model_cls)
             field_set_type = self.get_field_set_type(api, primary_key_field, method=method)
             expected_types["pk"] = field_set_type
@@ -192,7 +208,7 @@ class DjangoContext:
             return set_type
 
         model_info = helpers.lookup_class_typeinfo(api, model_cls)
-        for field in model_cls._meta.get_fields():
+        for field in model_cls.get_fields():
             if isinstance(field, Field):
                 field_name = field.attname
                 # Try to retrieve set type from a model's TypeInfo object and fallback to retrieving it manually
@@ -216,8 +232,8 @@ class DjangoContext:
                         expected_types[field_name] = AnyType(TypeOfAny.from_error)
                         continue
 
-                    if related_model._meta.proxy_for_model is not None:
-                        related_model = related_model._meta.proxy_for_model
+                    if related_model.proxy_for_model is not None:
+                        related_model = related_model.proxy_for_model
 
                     related_model_info = helpers.lookup_class_typeinfo(api, related_model)
                     if related_model_info is None:
@@ -333,21 +349,21 @@ class DjangoContext:
         self, field: Union["RelatedField[Any, Any]", ForeignObjectRel]
     ) -> Optional[Type[Model]]:
         if isinstance(field, RelatedField):
-            related_model_cls = field.remote_field.model
+            related_model_cls = Model(field.remote_field.model)
         else:
-            related_model_cls = field.field.model
+            related_model_cls = Model(field.field.model)
 
         if isinstance(related_model_cls, str):
             if related_model_cls == "self":  # type: ignore
                 # same model
-                related_model_cls = field.model
+                related_model_cls = Model(field.model)
             elif "." not in related_model_cls:
                 # same file model
                 related_model_fullname = field.model.__module__ + "." + related_model_cls
                 related_model_cls = self.get_model_class_by_fullname(related_model_fullname)
             else:
                 try:
-                    related_model_cls = self.apps_registry.get_model(related_model_cls)
+                    related_model_cls = Model(self.apps_registry.get_model(related_model_cls))
                 except LookupError:
                     return None
 
@@ -363,7 +379,7 @@ class DjangoContext:
                 field = self.get_primary_key_field(currently_observed_model)
                 continue
 
-            field = currently_observed_model._meta.get_field(field_part)
+            field = currently_observed_model.get_field(field_part)
             if isinstance(field, RelatedField):
                 currently_observed_model = field.related_model
                 model_name = currently_observed_model._meta.model_name

@@ -40,13 +40,13 @@ def typecheck_model_method(
 
     for actual_name, actual_type in get_actual_types(ctx, expected_keys):
         if actual_name not in expected_types:
-            ctx.api.fail(f'Unexpected attribute "{actual_name}" for model "{model_cls.__name__}"', ctx.context)
+            ctx.api.fail(f'Unexpected attribute "{actual_name}" for model "{model_cls.name}"', ctx.context)
             continue
         helpers.check_types_compatible(
             ctx,
             expected_type=expected_types[actual_name],
             actual_type=actual_type,
-            error_message=f'Incompatible type for "{actual_name}" of "{model_cls.__name__}"',
+            error_message=f'Incompatible type for "{actual_name}" of "{model_cls.name}"',
         )
 
     return ctx.default_return_type

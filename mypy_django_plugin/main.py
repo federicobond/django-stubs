@@ -1,4 +1,6 @@
+import os
 import sys
+import weakref
 from functools import partial
 from typing import Callable, Dict, List, Optional, Tuple, Type
 
@@ -70,6 +72,9 @@ class NewSemanalDjangoPlugin(Plugin):
         sys.path.extend(mypy_path())
         # Add paths from mypy_path config option
         sys.path.extend(options.mypy_path)
+        # add current directory to sys.path
+        sys.path.append(os.getcwd())
+
         self.django_context = DjangoContext(self.plugin_config.django_settings_module)
 
     def _get_current_queryset_bases(self) -> Dict[str, int]:
@@ -159,7 +164,7 @@ class NewSemanalDjangoPlugin(Plugin):
                         deps.add(self._new_dependency(related_model_module))
             # reverse relations
             # `related_objects` is private API (according to docstring)
-            for relation in model_class._meta.related_objects:  # type: ignore[attr-defined]
+            for relation in model_class.related_objects:  # type: ignore[attr-defined]
                 related_model_cls = self.django_context.get_field_related_model_cls(relation)
                 related_model_module = related_model_cls.__module__
                 if related_model_module != file.fullname:

@@ -194,7 +194,7 @@ class InjectAnyAsBaseForNestedMeta(ModelClassInitializer):
 
 class AddDefaultPrimaryKey(ModelClassInitializer):
     def run_with_model_cls(self, model_cls: Type[Model]) -> None:
-        auto_field = model_cls._meta.auto_field
+        auto_field = model_cls.auto_field
         if auto_field:
             self.create_autofield(
                 auto_field=auto_field,
@@ -224,7 +224,7 @@ class AddDefaultPrimaryKey(ModelClassInitializer):
 class AddPrimaryKeyAlias(AddDefaultPrimaryKey):
     def run_with_model_cls(self, model_cls: Type[Model]) -> None:
         # We also need to override existing `pk` definition from `stubs`:
-        auto_field = model_cls._meta.pk
+        auto_field = model_cls.pk
         if auto_field:
             self.create_autofield(
                 auto_field=auto_field,
@@ -235,7 +235,7 @@ class AddPrimaryKeyAlias(AddDefaultPrimaryKey):
 
 class AddRelatedModelsId(ModelClassInitializer):
     def run_with_model_cls(self, model_cls: Type[Model]) -> None:
-        for field in model_cls._meta.get_fields():
+        for field in model_cls.get_fields():
             if isinstance(field, ForeignKey):
                 related_model_cls = self.django_context.get_field_related_model_cls(field)
                 if related_model_cls is None:
@@ -250,7 +250,7 @@ class AddRelatedModelsId(ModelClassInitializer):
                     self.add_new_node_to_model_class(field.attname, AnyType(TypeOfAny.explicit))
                     continue
 
-                if related_model_cls._meta.abstract:
+                if related_model_cls.abstract:
                     continue
 
                 rel_target_field = self.django_context.get_related_target_field(related_model_cls, field)
@@ -306,7 +306,7 @@ class AddManagers(ModelClassInitializer):
         manager_info: Optional[TypeInfo]
 
         incomplete_manager_defs = set()
-        for manager_name, manager in model_cls._meta.managers_map.items():
+        for manager_name, manager in model_cls.managers_map.items():
             manager_node = self.model_classdef.info.names.get(manager_name, None)
             manager_fullname = helpers.get_class_fullname(manager.__class__)
             manager_info = self.lookup_manager(manager_fullname, manager)
@@ -403,7 +403,7 @@ class AddDefaultManagerAttribute(ModelClassInitializer):
         if "_default_manager" in self.model_classdef.info.names:
             return None
 
-        default_manager_cls = model_cls._meta.default_manager.__class__
+        default_manager_cls = model_cls.default_manager.__class__
         default_manager_fullname = helpers.get_class_fullname(default_manager_cls)
 
         try:

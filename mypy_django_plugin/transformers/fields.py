@@ -40,7 +40,7 @@ def _get_current_field_from_assignment(
         return None
 
     try:
-        return model_cls._meta.get_field(field_name)
+        return model_cls.get_field(field_name)
     except FieldDoesNotExist:
         return None
 
@@ -83,7 +83,7 @@ def fill_descriptor_types_for_related_field(ctx: FunctionContext, django_context
 
     related_model = related_model_cls
     related_model_to_set = related_model_cls
-    if related_model_to_set._meta.proxy_for_model is not None:
+    if related_model_to_set.proxy_for_model is not None:
         related_model_to_set = related_model_to_set._meta.proxy_for_model
 
     typechecker_api = helpers.get_typechecker_api(ctx)

@@ -113,7 +113,11 @@ def lookup_class_typeinfo(api: TypeChecker, klass: Optional[type]) -> Optional[T
     if klass is None:
         return None
 
-    fullname = get_class_fullname(klass)
+    if hasattr(klass, "fullname"):
+        fullname = klass.fullname
+    else:
+        fullname = get_class_fullname(klass)
+
     field_info = lookup_fully_qualified_typeinfo(api, fullname)
     return field_info
 
